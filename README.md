@@ -1,2 +1,2 @@
 # minesweeper
-Minesweeper game mad in Python
+Minesweeper game made in Python
