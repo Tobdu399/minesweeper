@@ -328,7 +328,7 @@ def main():
                 animated_images.pop(incorrect_flag)
 
             # Drawing the X symbol to the screen as text, because there is no antialiasing for images. Without
-            # it, the X image looks like crap because of jagged lines
+            # it, the X image looks like crap because of jagged edges
             incorrect_flag_symbol = incorrect_flag_font.render("X", True, (255, 0, 0))
             incorrect_flag_symbol_rect = incorrect_flag_symbol.get_rect(
                 center=(
