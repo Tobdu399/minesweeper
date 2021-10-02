@@ -1,7 +1,22 @@
-import pygame   # Using pygame module to draw everything on the screen for the player to see
-import random   # Using random module for randomizing the mines' locations
-import pickle   # Using pickle to save and load data from encrypted files
-import pathlib  # Using pathlib to check if a file exists
+# Using pygame module to draw everything on the screen for the player to see
+from pygame           import Surface, SRCALPHA, RESIZABLE, QUIT, MOUSEBUTTONDOWN, KEYDOWN, K_RETURN, quit
+from pygame.draw      import line, rect
+from pygame.font      import init as font_init, Font
+from pygame.display   import set_caption, set_mode, set_icon, update
+from pygame.image     import load as load_image
+from pygame.transform import scale
+from pygame.time      import Clock
+from pygame.mouse     import get_pos
+from pygame.event     import get
+
+# Using random module for randomizing the mines' locations
+from random import choice
+
+# Using pickle to save and load data from encrypted files
+from pickle import load, dump
+
+# Using pathlib to check if a file exists
+from pathlib import Path
 
 
 class AnimatedImage:
@@ -10,7 +25,7 @@ class AnimatedImage:
         self.frames    = frames
         self.frame     = 0
 
-    def show(self, surface: pygame.Surface, width: int, height: int, elapsed_time: float):
+    def show(self, surface: Surface, width: int, height: int, elapsed_time: float):
         surface.blit(self.frames[int(self.frame)], (self.x * width, self.y * height))
 
         if self.frame < len(self.frames)-1:
@@ -20,6 +35,32 @@ class AnimatedImage:
 
     def update_frames(self, updated_frames: list):
         self.frames = updated_frames
+
+
+def draw_grid(root: Surface, x_grids: int, y_grids: int):
+    display_size = root.get_size()
+
+    line_thickness = int(display_size[0] / (x_grids*10))
+    if line_thickness < 1:
+        line_thickness = 1
+    elif line_thickness > 3:
+        line_thickness = 3
+
+    for x in range(x_grids+1):
+        line(   # -> pygame.draw.line()
+            root, (0, 160, 0),
+            (x*(display_size[0]/x_grids), 0),
+            (x*(display_size[0]/x_grids), display_size[1]),
+            line_thickness
+        )
+
+    for y in range(y_grids+1):
+        line(   # -> pygame.draw.line()
+            root, (0, 160, 0),
+            (0, y*(display_size[1]/y_grids)),
+            (display_size[0], y*(display_size[1]/y_grids)),
+            line_thickness
+        )
 
 
 def generate_mines(amount_of_mines: int, x_grid_size: int, y_grid_size: int, avoid_locations: list):
@@ -32,7 +73,7 @@ def generate_mines(amount_of_mines: int, x_grid_size: int, y_grid_size: int, avo
             available_locations.remove(location_to_avoid)
 
     for mine in range(amount_of_mines):
-        mine_location = random.choice(available_locations)
+        mine_location = choice(available_locations)
         available_locations.pop(available_locations.index(mine_location))
         mines_locations.append(mine_location)
 
@@ -85,51 +126,25 @@ def generate_mines(amount_of_mines: int, x_grid_size: int, y_grid_size: int, avo
     return mines_locations, hint_numbers
 
 
-def draw_grid(root: pygame.Surface, x_grids: int, y_grids: int):
-    display_size = root.get_size()
+def minesweeper():
+    font_init()                 # -> pygame.font.init()
+    set_caption("Minesweeper")  # -> pygame.display.set_caption()
 
-    line_thickness = int(display_size[0] / (x_grids*10))
-    if line_thickness < 1:
-        line_thickness = 1
-    elif line_thickness > 3:
-        line_thickness = 3
+    display = set_mode((800, 650), RESIZABLE)    # -> pygame.display.set_mode()
 
-    for x in range(x_grids+1):
-        pygame.draw.line(
-            root, (0, 160, 0),
-            (x*(display_size[0]/x_grids), 0),
-            (x*(display_size[0]/x_grids), display_size[1]),
-            line_thickness
-        )
-
-    for y in range(y_grids+1):
-        pygame.draw.line(
-            root, (0, 160, 0),
-            (0, y*(display_size[1]/y_grids)),
-            (display_size[0], y*(display_size[1]/y_grids)),
-            line_thickness
-        )
-
-
-def main():
-    pygame.init()
-    pygame.display.set_caption("Minesweeper")
-
-    display = pygame.display.set_mode((800, 650), pygame.RESIZABLE)
-
-    pygame.display.set_icon(
-        pygame.image.load("lib/images/minesweeper_logo.png")
+    set_icon(   # -> pygame.display.set_icon()
+        load_image("lib/images/minesweeper_logo.png")  # -> pygame.image.load()
     )
 
-    gameboard             = pygame.Surface((560, 560))
-    clock, elapsed_time   = pygame.time.Clock(), 0
+    gameboard             = Surface((560, 560))  # -> pygame.Surface()
+    clock, elapsed_time   = Clock(), 0           # -> pygame.time.Clock()
     time, time_record     = 0, None
 
     # Check if a savefile can be found and if so, load the saved time record as the time record
     try:
-        if pathlib.Path("minesweeper.save").exists():
+        if Path("minesweeper.save").exists():   # -> pathlib.Path()
             with open("minesweeper.save", "rb") as savefile:
-                time_record = pickle.load(savefile)
+                time_record = load(savefile)
                 savefile.close()
     except Exception:
         # There has been an error loading the file, if the code in this block is executed.
@@ -139,6 +154,7 @@ def main():
     process_interrupted   = False
     game_started          = False
     game_over             = False
+    game_result           = None
 
     # -----------------------------------------------------
 
@@ -150,11 +166,19 @@ def main():
     x_box_size               = gameboard_size[0] / x_grid_size
     y_box_size               = gameboard_size[1] / y_grid_size
 
-    hover                    = pygame.Surface((x_box_size, y_box_size), pygame.SRCALPHA)
+    hover                    = Surface((x_box_size, y_box_size), SRCALPHA)
+    game_over_screen         = Surface((display_size[0], display_size[1]/2), SRCALPHA)
+
+    game_over_screen_in, game_over_screen_out = False, False
+    game_over_screen_visible = False
+    game_over_screen_xpos    = None
+
+    game_over_screen_movement_speed = None
+    game_over_screen_alpha          = 0
 
     hover.fill((0, 0, 0, 40))
 
-    const_amount_of_mines             = 30  # This value should not be modified
+    const_amount_of_mines             = 20  # This value should not be modified
 
     amount_of_mines = amount_of_flags = const_amount_of_mines
     mines_locations, hint_numbers     = None, None
@@ -169,32 +193,27 @@ def main():
     animated_images      = {}
 
     flag_sprite          = []
-    flag_sprite_img      = pygame.image.load("lib/images/flag_sprite.png").convert_alpha()
+    flag_sprite_img      = load_image("lib/images/flag_sprite.png").convert_alpha()
 
-    mine_image_original  = pygame.image.load("lib/images/mine.png").convert_alpha()
+    mine_image_original  = load_image("lib/images/mine.png").convert_alpha()
     mine_image           = mine_image_original
 
-    trophy_icon_original = pygame.image.load("lib/images/trophy.png").convert_alpha()
+    trophy_icon_original = load_image("lib/images/trophy.png").convert_alpha()
     trophy_icon          = trophy_icon_original
 
-    clock_icon_original  = pygame.image.load("lib/images/clock.png").convert_alpha()
+    clock_icon_original  = load_image("lib/images/clock.png").convert_alpha()
     clock_icon           = clock_icon_original
 
-    flag_icon_original   = pygame.image.load("lib/images/flag.png").convert_alpha()
+    flag_icon_original   = load_image("lib/images/flag.png").convert_alpha()
     flag_icon            = flag_icon_original
 
-    hint_number_font    = pygame.font.Font("lib/fonts/hint_number_font.ttf", int(x_box_size / 1.5))
-    score_font          = pygame.font.Font("lib/fonts/score_font.ttf", int(x_box_size / 1.3))
-    incorrect_flag_font = pygame.font.Font("lib/fonts/x.ttf", int(x_box_size))
+    hint_number_font = score_font = incorrect_flag_font = gameover_font = None
 
     # -----------------------------------------------------
 
-    # TODO: Game over screen that possibly slides from right/left and goes to left/right with a button to
-    #  restart the game and some text with it? Or the game over screen could also fade in and out?
-
     while not process_interrupted:
-        # Variables that need updating in case the display size changes
 
+        # Variables that need updating in case the display size changes
         if initializing_game or display.get_size() != display_previous_size:
             initializing_game = False if initializing_game is True else False
 
@@ -207,12 +226,16 @@ def main():
             else:
                 gameboard_size = (int(display_size[0] * 0.7), int(display_size[0] * 0.7))
 
-            gameboard  = pygame.transform.scale(gameboard, gameboard_size)
+            gameboard  = scale(gameboard, gameboard_size)
 
             x_box_size = gameboard_size[0] / x_grid_size
             y_box_size = gameboard_size[1] / y_grid_size
 
-            hover      = pygame.transform.scale(hover, (round(x_box_size), round(y_box_size)))
+            hover            = scale(hover, (round(x_box_size), round(y_box_size)))  # -> pygame.transform.scale()
+
+            game_over_screen = scale(
+                game_over_screen, (round(display_size[0]), round(display_size[1]/2))
+            )
 
             # Rescale / Initialize images -----------------
 
@@ -220,7 +243,7 @@ def main():
             # the picture quality very bad
             flag_sprite.clear()
             for frame in range(10):
-                flag = pygame.Surface((flag_sprite_img.get_width(), flag_sprite_img.get_width()), pygame.SRCALPHA)
+                flag = Surface((flag_sprite_img.get_width(), flag_sprite_img.get_width()), SRCALPHA)
                 flag.blit(
                     flag_sprite_img, (0, 0), (
                         0, frame * (flag_sprite_img.get_height() / 10),
@@ -229,39 +252,40 @@ def main():
                 )
 
                 flag_sprite.append(
-                    pygame.transform.scale(flag, (int(x_box_size), int(y_box_size)))
+                    scale(flag, (int(x_box_size), int(y_box_size)))
                 )
 
             for animated_image in list(animated_images.keys()):
                 if animated_image in flagged_tiles:
                     animated_images[animated_image].update_frames(flag_sprite)
 
-            mine_image = pygame.transform.scale(
+            mine_image = scale(
                 mine_image_original, (int(x_box_size), int(y_box_size))
             )
 
-            trophy_icon = pygame.transform.scale(
+            trophy_icon = scale(
                 trophy_icon_original, (int(x_box_size), (int(y_box_size)))
             )
 
-            clock_icon = pygame.transform.scale(
+            clock_icon = scale(
                 clock_icon_original, (int(x_box_size), int(y_box_size))
             )
 
-            flag_icon  = pygame.transform.scale(
+            flag_icon  = scale(
                 flag_icon_original, (int(x_box_size), int(y_box_size))
             )
 
             # Rescale / Initialize fonts ------------------
 
-            hint_number_font    = pygame.font.Font("lib/fonts/hint_number_font.ttf", int(x_box_size / 1.5))
-            score_font          = pygame.font.Font("lib/fonts/score_font.ttf", int(x_box_size / 1.3))
-            incorrect_flag_font = pygame.font.Font("lib/fonts/x.ttf", int(x_box_size))
+            hint_number_font    = Font("lib/fonts/hint_number_font.ttf", int(x_box_size / 1.5))
+            score_font          = Font("lib/fonts/score_font.ttf", int(x_box_size / 1.3))
+            incorrect_flag_font = Font("lib/fonts/x.ttf", int(x_box_size))
+            gameover_font       = Font("lib/fonts/gameover_font.ttf", int(x_box_size * 1.5))
 
         # -------------------------------------------------
 
-        pygame.display.set_caption(f"Minesweeper    FPS {int(clock.get_fps())}")
-        mouse_position              = pygame.mouse.get_pos()
+        set_caption(f"Minesweeper    FPS {int(clock.get_fps())}")
+        mouse_position              = get_pos()
         mouse_position_on_gameboard = (
             mouse_position[0] - (display_size[0]-gameboard_size[0])/2,
             mouse_position[1] - (display_size[1]-gameboard_size[1])/2
@@ -278,6 +302,59 @@ def main():
 
         if not game_over and game_started:
             time += elapsed_time/1000   # Elapsed time is in milliseconds, divide by 1000 to convert it to seconds
+
+        # Move game over screen in
+        max_alpha = 180
+
+        if game_over_screen_in:
+            if game_over_screen_xpos is None:
+                game_over_screen_xpos = display_size[0]
+                game_over_screen_movement_speed = 300
+                game_over_screen_alpha = 0
+
+            if game_over_screen_xpos > 0:
+                game_over_screen_xpos = game_over_screen_xpos - (
+                        display_size[0]/game_over_screen_movement_speed
+                ) * elapsed_time
+
+                game_over_screen_movement_speed += elapsed_time*2
+
+                if game_over_screen_xpos < 0:
+                    game_over_screen_xpos = 0
+
+                if game_over_screen_alpha < max_alpha:
+                    game_over_screen_alpha += (max_alpha/game_over_screen_movement_speed)*elapsed_time
+
+            else:
+                game_over_screen_in      = False
+                game_over_screen_visible = True
+                game_over_screen_xpos    = None
+
+        # Move game over screen out
+        elif game_over_screen_out:
+            if game_over_screen_xpos is None:
+                game_over_screen_xpos = 0
+                game_over_screen_movement_speed = 500
+                game_over_screen_alpha = max_alpha
+
+            if game_over_screen_xpos > game_over_screen.get_width() * -1:
+                game_over_screen_xpos = game_over_screen_xpos - (
+                        display_size[0]/game_over_screen_movement_speed
+                ) * elapsed_time
+
+                game_over_screen_movement_speed -= elapsed_time*2
+
+                if game_over_screen_alpha > 0:
+                    game_over_screen_alpha -= (max_alpha/game_over_screen_movement_speed)*elapsed_time
+
+                if game_over_screen_alpha < 0:
+                    game_over_screen_alpha = 0
+
+            else:
+                game_over_screen_out     = False
+                game_over_screen_visible = False
+                game_over_screen_xpos    = None
+                game_result              = None
 
         # Display -----------------------------------------
 
@@ -306,7 +383,7 @@ def main():
         gameboard.fill((0, 200, 0))
 
         for flipped_tile in flipped_tiles:
-            pygame.draw.rect(
+            rect(
                 gameboard, (230, 200, 160), (
                     round(flipped_tile[0]*x_box_size), round(flipped_tile[1]*y_box_size),
                     round(x_box_size),                 round(y_box_size)
@@ -402,7 +479,7 @@ def main():
 
         # Better performance with just a rect instead of transparent surface as the shadow! (~ +5%)
 
-        pygame.draw.rect(
+        rect(   # -> pygame.draw.rect()
             display, (0, 120, 0), (
                 ((display_size[0] / 2) - (gameboard_size[0] / 2)) + (gameboard_size[0] / 2) * 0.1,
                 ((display_size[1] / 2) - (gameboard_size[1] / 2)) + (gameboard_size[1] / 2) * 0.1,
@@ -416,13 +493,42 @@ def main():
             display_size[1]/2 - gameboard_size[1]/2
         ))
 
+        # Game over screen --------------------------------
+
+        if game_over_screen_in or game_over_screen_out or game_over_screen_visible:
+            if game_over_screen_visible and not game_over_screen_in and not game_over_screen_out:
+                game_over_screen_xpos = 0
+
+            game_over_screen.fill((0, 0, 0, game_over_screen_alpha))
+
+            if game_result is True:
+                game_over_text = gameover_font.render("You Won!", True, (50, 220, 50))
+            elif game_result is False:
+                game_over_text = gameover_font.render("You Lost!", True, (220, 0, 0))
+            else:
+                game_over_text = gameover_font.render("Game Over!", True, (220, 220, 220))
+
+            game_over_text_rect = game_over_text.get_rect(center=(
+                game_over_screen.get_width() / 2, game_over_screen.get_height() / 3
+            ))
+
+            restart_text        = score_font.render("Press ENTER to restart the game", True, (220, 220, 220))
+            restart_text_rect   = restart_text.get_rect(center=(
+                game_over_screen.get_width()/2, game_over_screen.get_height()/2
+            ))
+
+            game_over_screen.blit(game_over_text, game_over_text_rect)
+            game_over_screen.blit(restart_text, restart_text_rect)
+
+            display.blit(game_over_screen, (game_over_screen_xpos, display_size[1]/2 - game_over_screen.get_height()/2))
+
         # Keyboard Events ---------------------------------
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+        for event in get():     # -> pygame.event.get()
+            if event.type == QUIT:
                 process_interrupted = True
 
-            if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.type == MOUSEBUTTONDOWN:   # -> pygame.MOUSEBUTTONDOWN
                 game_started = True if game_started is False else True
 
                 if gameboard.get_rect().collidepoint(mouse_position_on_gameboard):
@@ -461,6 +567,7 @@ def main():
 
                                 flipped_tiles.append((current_tile[0], current_tile[1]))
 
+                                # Using reverse backtracking to flip all the tiles connected to the clicked tile
                                 while len(path) > 0:
                                     available_neighbours = []
                                     tiles_to_check       = [
@@ -491,8 +598,9 @@ def main():
                                         path         = path[:-1]
 
                             else:
-                                # TODO: GAME OVER! lost!
-                                game_over = True
+                                game_over             = True
+                                game_over_screen_in   = True
+                                game_result           = False
 
                                 for mine_location in mines_locations:
                                     if mine_location not in flagged_tiles:
@@ -513,46 +621,54 @@ def main():
                                 flagged_tiles.pop(flagged_tiles.index(click_location))
                                 amount_of_flags += 1
 
-                            # Check if all the mines are flagged and if so, the game is over
-                            if amount_of_flags == 0:
-                                all_mines_flagged = True
-                                for flagged_mine in mines_locations:
-                                    if flagged_mine not in flagged_tiles:
-                                        all_mines_flagged = False
+                # Check if all the mines are flagged and if so, the game is over
+                if amount_of_flags == 0:
+                    all_mines_flagged = True
+                    for flagged_mine in mines_locations:
+                        if flagged_mine not in flagged_tiles:
+                            all_mines_flagged = False
 
-                                if all_mines_flagged:
-                                    # TODO: GAME OVER! Win!
-                                    game_over = True
+                    # The game has been won, if all the mines are flagged and there are
+                    # no empty tiles unchecked
+                    if all_mines_flagged:
+                        if len(flipped_tiles) == (x_grid_size * y_grid_size) - amount_of_mines:
+                            game_over = True
+                            game_over_screen_in = True
+                            game_result = True
 
-                                    # Save the new record in to a file
-                                    if time_record is None or time < float(time_record):
-                                        time_record = f"{time:.1f}"
-                                        with open("minesweeper.save", "wb") as savefile:
-                                            pickle.dump(time_record, savefile)
-                                            savefile.close()
+                            # Save the new record in to a file
+                            if time_record is None or time < float(time_record):
+                                time_record = f"{time:.1f}"
+                                with open("minesweeper.save", "wb") as savefile:
+                                    dump(time_record, savefile)
+                                    savefile.close()
 
-            if event.type == pygame.KEYDOWN:
+            if event.type == KEYDOWN:   # -> pygame.KEYDOWN
                 # Reset / Restart the game ----------------
-                if event.key == pygame.K_RETURN:
-                    game_started = game_over = False
-                    time         = 0
+                if event.key == K_RETURN:
+                    if not game_over_screen_in and not game_over_screen_out:
+                        game_started = game_over = False
+                        time         = 0
 
-                    amount_of_mines = amount_of_flags = const_amount_of_mines
+                        amount_of_mines = amount_of_flags = const_amount_of_mines
 
-                    # mines_locations and hint_numbers will be generated after the first click, to avoid losing
-                    # the game instantly
-                    mines_locations, hint_numbers = None, None
+                        # mines_locations and hint_numbers will be generated after the first click, to avoid losing
+                        # the game instantly
+                        mines_locations, hint_numbers = None, None
 
-                    animated_images               = {}
-                    # flagged_tiles = flipped_tiles = incorrect_tiles = [] <-- I literally have no idea,
-                    # why this doesn't work, as it should do the same thing as the line below?
-                    flagged_tiles, flipped_tiles, incorrect_tiles = [], [], []
+                        animated_images               = {}
+                        # flagged_tiles = flipped_tiles = incorrect_tiles = [] <-- I literally have no idea,
+                        # why this doesn't work, as it should do the same thing as the line below?
+                        flagged_tiles, flipped_tiles, incorrect_tiles = [], [], []
 
-        pygame.display.update()
+                        if game_over_screen_visible:
+                            game_over_screen_out = True
+
+        update()    # -> pygame.display.update()
         elapsed_time = clock.tick(0)
 
-    pygame.quit()
+    quit()  # -> pygame.quit()
 
 
 if __name__ == "__main__":
-    main()
+    minesweeper()
